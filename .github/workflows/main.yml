@@ -35,6 +35,12 @@ jobs:
           sudo curl -L https://storage.googleapis.com/git-repo-downloads/repo -o /usr/local/bin/repo
           sudo chmod a+x /usr/local/bin/repo
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+          sudo apt clean
+          df -h
+          
       - name: Set up Android Kernel source
         run: |
           mkdir -p android-kernel && cd android-kernel
