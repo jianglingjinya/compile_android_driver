@@ -161,11 +161,8 @@ bool read_physical_address(phys_addr_t pa, void *buffer, size_t size)
 		current_pa += PAGE_SIZE;
 	}
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-	vmapped_addr = vmap(pages, npages, pgprot_noncached(PAGE_KERNEL));
-#else
 	vmapped_addr = vmap(pages, npages, VM_MAP, pgprot_noncached(PAGE_KERNEL));
-#endif
+
 	kfree(pages);
 
 	if (!vmapped_addr)
@@ -220,11 +217,8 @@ bool write_physical_address(phys_addr_t pa, void *buffer, size_t size)
 		current_pa += PAGE_SIZE;
 	}
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-	vmapped_addr = vmap(pages, npages, pgprot_noncached(PAGE_KERNEL));
-#else
 	vmapped_addr = vmap(pages, npages, VM_MAP, pgprot_noncached(PAGE_KERNEL));
-#endif
+
 	kfree(pages);
 
 	if (!vmapped_addr)
