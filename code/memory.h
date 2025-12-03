@@ -121,202 +121,178 @@ static size_t get_high_memory(void)
 #define valid_phys_addr_range(addr, count) true
 #endif
 
-bool read_physical_address(phys_addr_t pa, void *buffer, size_t size)
+static bool read_physical_address(phys_addr_t pa, void __user *buffer, size_t size)
 {
-	void *mapped_page;
-	void *vmapped_addr;
-	unsigned long offset;
-	unsigned int npages;
-	struct page **pages;
-	int i;
-	phys_addr_t current_pa;
+    void *mapped_addr;
+    size_t bytes_read = 0;
+    size_t current_size;
+    unsigned long current_pa = pa;
 
-	if (!valid_phys_addr_range(pa, size))
-	{
-		return false;
-	}
+    if (!size || !pfn_valid(__phys_to_pfn(pa))) {
+        return false;
+    }
 
-	offset = pa & (PAGE_SIZE - 1);
-	npages = (offset + size + PAGE_SIZE - 1) / PAGE_SIZE;
+    if (!valid_phys_addr_range(pa, size)) {
+        return false;
+    }
 
-	pages = kmalloc(npages * sizeof(struct page *), GFP_KERNEL);
-	if (!pages)
-	{
-		return false;
-	}
+    while (bytes_read < size) {
+        current_size = size - bytes_read;
 
-	current_pa = pa & PAGE_MASK;
-	for (i = 0; i < npages; i++)
-	{
-		if (!pfn_valid(__phys_to_pfn(current_pa)))
-		{
-			kfree(pages);
-			return false;
-		}
-		pages[i] = pfn_to_page(__phys_to_pfn(current_pa));
-		current_pa += PAGE_SIZE;
-	}
+        mapped_addr = ioremap_cache(current_pa, current_size);
+        if (!mapped_addr) {
+            return false;
+        }
 
-	vmapped_addr = vmap(pages, npages, VM_MAP, pgprot_noncached(PAGE_KERNEL));
+        if (copy_to_user(buffer + bytes_read, mapped_addr, current_size)) {
+            iounmap(mapped_addr);
+            return false;
+        }
 
-	kfree(pages);
+        iounmap(mapped_addr);
+        bytes_read += current_size;
+        current_pa += current_size;
+    }
 
-	if (!vmapped_addr)
-	{
-		return false;
-	}
-
-	mapped_page = vmapped_addr + offset;
-
-	if (copy_to_user(buffer, mapped_page, size))
-	{
-		vunmap(vmapped_addr);
-		return false;
-	}
-	vunmap(vmapped_addr);
-	return true;
+    return true;
 }
 
-bool write_physical_address(phys_addr_t pa, void *buffer, size_t size)
+static bool write_physical_address(phys_addr_t pa, const void __user *buffer, size_t size)
 {
-	void *mapped_page;
-	void *vmapped_addr;
-	unsigned long offset;
-	unsigned int npages;
-	struct page **pages;
-	int i;
-	phys_addr_t current_pa;
+    void *mapped_addr;
+    size_t bytes_written = 0;
+    size_t current_size;
+    unsigned long current_pa = pa;
 
-	if (!valid_phys_addr_range(pa, size))
-	{
-		return false;
-	}
+    if (!size || !pfn_valid(__phys_to_pfn(pa))) {
+        return false;
+    }
 
-	offset = pa & (PAGE_SIZE - 1);
-	npages = (offset + size + PAGE_SIZE - 1) / PAGE_SIZE;
+    if (!valid_phys_addr_range(pa, size)) {
+        return false;
+    }
 
-	pages = kmalloc(npages * sizeof(struct page *), GFP_KERNEL);
-	if (!pages)
-	{
-		return false;
-	}
+    while (bytes_written < size) {
+        current_size = size - bytes_written;
 
-	current_pa = pa & PAGE_MASK;
-	for (i = 0; i < npages; i++)
-	{
-		if (!pfn_valid(__phys_to_pfn(current_pa)))
-		{
-			kfree(pages);
-			return false;
-		}
-		pages[i] = pfn_to_page(__phys_to_pfn(current_pa));
-		current_pa += PAGE_SIZE;
-	}
+        mapped_addr = ioremap_cache(current_pa, current_size);
+        if (!mapped_addr) {
+            return false;
+        }
 
-	vmapped_addr = vmap(pages, npages, VM_MAP, pgprot_noncached(PAGE_KERNEL));
+        if (copy_from_user(mapped_addr, buffer + bytes_written, current_size)) {
+            iounmap(mapped_addr);
+            return false;
+        }
 
-	kfree(pages);
+        iounmap(mapped_addr);
+        bytes_written += current_size;
+        current_pa += current_size;
+    }
 
-	if (!vmapped_addr)
-	{
-		return false;
-	}
-
-	mapped_page = vmapped_addr + offset;
-
-	if (copy_from_user(mapped_page, buffer, size))
-	{
-		vunmap(vmapped_addr);
-		return false;
-	}
-	vunmap(vmapped_addr);
-	return true;
+    return true;
 }
 
-bool read_process_memory(
-	pid_t pid,
-	uintptr_t addr,
-	void *buffer,
-	size_t size)
+bool read_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t size)
 {
+    struct task_struct *task;
+    struct mm_struct *mm;
+    struct pid *pid_struct;
+    phys_addr_t pa;
+    size_t bytes_read = 0;
+    size_t remaining = size;
+    size_t chunk_size;
 
-	struct task_struct *task;
-	struct mm_struct *mm;
-	struct pid *pid_struct;
-	phys_addr_t pa;
-	bool result = false;
+    if (!size || !buffer)
+        return false;
 
-	pid_struct = find_get_pid(pid);
-	if (!pid_struct)
-	{
-		return false;
-	}
-	task = get_pid_task(pid_struct, PIDTYPE_PID);
-	if (!task)
-	{
-		return false;
-	}
-	mm = get_task_mm(task);
-	if (!mm)
-	{
-		return false;
-	}
+    pid_struct = find_get_pid(pid);
+    if (!pid_struct)
+        return false;
 
-	pa = translate_linear_address(mm, addr);
-	if (pa)
-	{
-		result = read_physical_address(pa, buffer, size);
-	}
-	else
-	{
-		if (find_vma(mm, addr))
-		{
-			if (clear_user(buffer, size) == 0)
-			{
-				result = true;
-			}
-		}
-	}
+    task = get_pid_task(pid_struct, PIDTYPE_PID);
+    put_pid(pid_struct);
+    if (!task)
+        return false;
 
-	mmput(mm);
-	return result;
+    mm = get_task_mm(task);
+    if (!mm)
+        return false;
+
+
+    while (remaining > 0) {
+        chunk_size = min_t(size_t, remaining, PAGE_SIZE - (addr & ~PAGE_MASK));
+        
+        pa = translate_linear_address(mm, addr);
+        if (!pa) {
+            goto out_error;
+        }
+
+        if (!read_physical_address(pa, (void __user *)(buffer + bytes_read), chunk_size)) {
+            goto out_error;
+        }
+
+        bytes_read += chunk_size;
+        remaining -= chunk_size;
+        addr += chunk_size;
+    }
+
+    mmput(mm);
+    return true;
+
+out_error:
+    mmput(mm);
+    return false;
 }
 
-bool write_process_memory(
-	pid_t pid,
-	uintptr_t addr,
-	void *buffer,
-	size_t size)
+bool write_process_memory(pid_t pid, uintptr_t addr, const void *buffer, size_t size)
 {
+    struct task_struct *task;
+    struct mm_struct *mm;
+    struct pid *pid_struct;
+    phys_addr_t pa;
+    size_t bytes_written = 0;
+    size_t remaining = size;
+    size_t chunk_size;
 
-	struct task_struct *task;
-	struct mm_struct *mm;
-	struct pid *pid_struct;
-	phys_addr_t pa;
-	bool result = false;
+    if (!size || !buffer)
+        return false;
 
-	pid_struct = find_get_pid(pid);
-	if (!pid_struct)
-	{
-		return false;
-	}
-	task = get_pid_task(pid_struct, PIDTYPE_PID);
-	if (!task)
-	{
-		return false;
-	}
-	mm = get_task_mm(task);
-	if (!mm)
-	{
-		return false;
-	}
+    pid_struct = find_get_pid(pid);
+    if (!pid_struct)
+        return false;
 
-	pa = translate_linear_address(mm, addr);
-	if (pa)
-	{
-		result = write_physical_address(pa, buffer, size);
-	}
+    task = get_pid_task(pid_struct, PIDTYPE_PID);
+    put_pid(pid_struct);
+    if (!task)
+        return false;
 
-	mmput(mm);
-	return result;
+    mm = get_task_mm(task);
+    if (!mm)
+        return false;
+
+
+    while (remaining > 0) {
+        chunk_size = min_t(size_t, remaining, PAGE_SIZE - (addr & ~PAGE_MASK));
+        
+        pa = translate_linear_address(mm, addr);
+        if (!pa) {
+            goto out_error;
+        }
+
+        if (!write_physical_address(pa, (const void __user *)(buffer + bytes_written), chunk_size)) {
+            goto out_error;
+        }
+
+        bytes_written += chunk_size;
+        remaining -= chunk_size;
+        addr += chunk_size;
+    }
+
+    mmput(mm);
+    return true;
+
+out_error:
+    mmput(mm);
+    return false;
 }
