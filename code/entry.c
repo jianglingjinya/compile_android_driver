@@ -10,9 +10,9 @@
 #include "memory.h"
 #include "process.h"
 
-#define OP_CMD_READ 0x1001
-#define OP_CMD_WRITE 0x1002
-#define OP_CMD_BASE 0x1003
+#define OP_READ_MEM 0x1001
+#define OP_WRITE_MEM 0x1002
+#define OP_MODULE_BASE 0x1003
 
 static int handler_ioctl_pre(struct kprobe *p, struct pt_regs *kregs)
 {
