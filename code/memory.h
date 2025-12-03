@@ -121,178 +121,142 @@ static size_t get_high_memory(void)
 #define valid_phys_addr_range(addr, count) true
 #endif
 
-static bool read_physical_address(phys_addr_t pa, void __user *buffer, size_t size)
+bool read_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
-    void *mapped_addr;
-    size_t bytes_read = 0;
-    size_t current_size;
-    unsigned long current_pa = pa;
+	void *mapped;
 
-    if (!size || !pfn_valid(__phys_to_pfn(pa))) {
-        return false;
-    }
-
-    if (!valid_phys_addr_range(pa, size)) {
-        return false;
-    }
-
-    while (bytes_read < size) {
-        current_size = size - bytes_read;
-
-        mapped_addr = ioremap_cache(current_pa, current_size);
-        if (!mapped_addr) {
-            return false;
-        }
-
-        if (copy_to_user(buffer + bytes_read, mapped_addr, current_size)) {
-            iounmap(mapped_addr);
-            return false;
-        }
-
-        iounmap(mapped_addr);
-        bytes_read += current_size;
-        current_pa += current_size;
-    }
-
-    return true;
+	if (!pfn_valid(__phys_to_pfn(pa)))
+	{
+		return false;
+	}
+	if (!valid_phys_addr_range(pa, size))
+	{
+		return false;
+	}
+	mapped = ioremap_cache(pa, size);
+	if (!mapped)
+	{
+		return false;
+	}
+	if (copy_to_user(buffer, mapped, size))
+	{
+		iounmap(mapped);
+		return false;
+	}
+	iounmap(mapped);
+	return true;
 }
 
-static bool write_physical_address(phys_addr_t pa, const void __user *buffer, size_t size)
+bool write_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
-    void *mapped_addr;
-    size_t bytes_written = 0;
-    size_t current_size;
-    unsigned long current_pa = pa;
+	void *mapped;
 
-    if (!size || !pfn_valid(__phys_to_pfn(pa))) {
-        return false;
-    }
-
-    if (!valid_phys_addr_range(pa, size)) {
-        return false;
-    }
-
-    while (bytes_written < size) {
-        current_size = size - bytes_written;
-
-        mapped_addr = ioremap_cache(current_pa, current_size);
-        if (!mapped_addr) {
-            return false;
-        }
-
-        if (copy_from_user(mapped_addr, buffer + bytes_written, current_size)) {
-            iounmap(mapped_addr);
-            return false;
-        }
-
-        iounmap(mapped_addr);
-        bytes_written += current_size;
-        current_pa += current_size;
-    }
-
-    return true;
+	if (!pfn_valid(__phys_to_pfn(pa)))
+	{
+		return false;
+	}
+	if (!valid_phys_addr_range(pa, size))
+	{
+		return false;
+	}
+	mapped = ioremap_cache(pa, size);
+	if (!mapped)
+	{
+		return false;
+	}
+	if (copy_from_user(mapped, buffer, size))
+	{
+		iounmap(mapped);
+		return false;
+	}
+	iounmap(mapped);
+	return true;
 }
 
-bool read_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t size)
+bool read_process_memory(
+	pid_t pid,
+	uintptr_t addr,
+	void *buffer,
+	size_t size)
 {
-    struct task_struct *task;
-    struct mm_struct *mm;
-    struct pid *pid_struct;
-    phys_addr_t pa;
-    size_t bytes_read = 0;
-    size_t remaining = size;
-    size_t chunk_size;
 
-    if (!size || !buffer)
-        return false;
+	struct task_struct *task;
+	struct mm_struct *mm;
+	struct pid *pid_struct;
+	phys_addr_t pa;
+	bool result = false;
 
-    pid_struct = find_get_pid(pid);
-    if (!pid_struct)
-        return false;
+	pid_struct = find_get_pid(pid);
+	if (!pid_struct)
+	{
+		return false;
+	}
+	task = get_pid_task(pid_struct, PIDTYPE_PID);
+	if (!task)
+	{
+		return false;
+	}
+	mm = get_task_mm(task);
+	if (!mm)
+	{
+		return false;
+	}
 
-    task = get_pid_task(pid_struct, PIDTYPE_PID);
-    put_pid(pid_struct);
-    if (!task)
-        return false;
+	pa = translate_linear_address(mm, addr);
+	if (pa)
+	{
+		result = read_physical_address(pa, buffer, size);
+	}
+	else
+	{
+		if (find_vma(mm, addr))
+		{
+			if (clear_user(buffer, size) == 0)
+			{
+				result = true;
+			}
+		}
+	}
 
-    mm = get_task_mm(task);
-    if (!mm)
-        return false;
-
-
-    while (remaining > 0) {
-        chunk_size = min_t(size_t, remaining, PAGE_SIZE - (addr & ~PAGE_MASK));
-        
-        pa = translate_linear_address(mm, addr);
-        if (!pa) {
-            goto out_error;
-        }
-
-        if (!read_physical_address(pa, (void __user *)(buffer + bytes_read), chunk_size)) {
-            goto out_error;
-        }
-
-        bytes_read += chunk_size;
-        remaining -= chunk_size;
-        addr += chunk_size;
-    }
-
-    mmput(mm);
-    return true;
-
-out_error:
-    mmput(mm);
-    return false;
+	mmput(mm);
+	return result;
 }
 
-bool write_process_memory(pid_t pid, uintptr_t addr, const void *buffer, size_t size)
+bool write_process_memory(
+	pid_t pid,
+	uintptr_t addr,
+	void *buffer,
+	size_t size)
 {
-    struct task_struct *task;
-    struct mm_struct *mm;
-    struct pid *pid_struct;
-    phys_addr_t pa;
-    size_t bytes_written = 0;
-    size_t remaining = size;
-    size_t chunk_size;
 
-    if (!size || !buffer)
-        return false;
+	struct task_struct *task;
+	struct mm_struct *mm;
+	struct pid *pid_struct;
+	phys_addr_t pa;
+	bool result = false;
 
-    pid_struct = find_get_pid(pid);
-    if (!pid_struct)
-        return false;
+	pid_struct = find_get_pid(pid);
+	if (!pid_struct)
+	{
+		return false;
+	}
+	task = get_pid_task(pid_struct, PIDTYPE_PID);
+	if (!task)
+	{
+		return false;
+	}
+	mm = get_task_mm(task);
+	if (!mm)
+	{
+		return false;
+	}
 
-    task = get_pid_task(pid_struct, PIDTYPE_PID);
-    put_pid(pid_struct);
-    if (!task)
-        return false;
+	pa = translate_linear_address(mm, addr);
+	if (pa)
+	{
+		result = write_physical_address(pa, buffer, size);
+	}
 
-    mm = get_task_mm(task);
-    if (!mm)
-        return false;
-
-
-    while (remaining > 0) {
-        chunk_size = min_t(size_t, remaining, PAGE_SIZE - (addr & ~PAGE_MASK));
-        
-        pa = translate_linear_address(mm, addr);
-        if (!pa) {
-            goto out_error;
-        }
-
-        if (!write_physical_address(pa, (const void __user *)(buffer + bytes_written), chunk_size)) {
-            goto out_error;
-        }
-
-        bytes_written += chunk_size;
-        remaining -= chunk_size;
-        addr += chunk_size;
-    }
-
-    mmput(mm);
-    return true;
-
-out_error:
-    mmput(mm);
-    return false;
+	mmput(mm);
+	return result;
 }

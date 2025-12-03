@@ -1,27 +1,40 @@
 #include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/kprobes.h>
-#include <linux/uaccess.h>
-#include <linux/slab.h>
-#include <linux/sched.h>
-#include <linux/mm.h>
+#include <linux/tty.h>
+#include <linux/miscdevice.h>
 #include <linux/proc_fs.h>
+#include <linux/list.h>
+#include <linux/kobject.h>
 #include "comm.h"
 #include "memory.h"
 #include "process.h"
 
-#define OP_CMD_READ 0x1001
-#define OP_CMD_WRITE 0x1002
-#define OP_CMD_BASE 0x1003
+#define DEVICE_NAME "PAN"
 
-static int handler_ioctl_pre(struct kprobe *p, struct pt_regs *kregs)
+int dispatch_open(struct inode *node, struct file *file)
 {
-    unsigned int cmd = (unsigned int)kregs->regs[1];
-    unsigned long arg = (unsigned long)kregs->regs[2];
-    static COPY_MEMORY cm;
-    static MODULE_BASE mb;
-    static char name[0x100] = {0};
-    
+	return 0;
+}
+
+int dispatch_close(struct inode *node, struct file *file)
+{
+	return 0;
+}
+
+long dispatch_ioctl(struct file *const file, unsigned int const cmd, unsigned long const arg)
+{
+	static COPY_MEMORY cm;
+	static MODULE_BASE mb;
+	static char name[0x100] = {0};
+	/*static char key[0x100] = "PANPAN";	
+	static bool is_verified = false;
+
+	if (cmd == OP_INIT_KEY && !is_verified)
+	{
+		if (copy_from_user(key, (void __user *)arg, sizeof(key) - 1) != 0)
+		{
+			return -1;
+		}
+	}*/
 	switch (cmd)
 	{
 	case OP_READ_MEM:
@@ -64,36 +77,44 @@ static int handler_ioctl_pre(struct kprobe *p, struct pt_regs *kregs)
 	default:
 		break;
 	}
-    return 0;
+	return 0;
 }
 
-static struct kprobe kp = {
-    .symbol_name = "inet_ioctl",
-    .pre_handler = handler_ioctl_pre,
-
-    //.symbol_name = "__arm64_sys_lookup_dcookie",
-    //.pre_handler = handler_ioctl_pre,    
+struct file_operations dispatch_functions = {
+	.owner = THIS_MODULE,
+	.open = dispatch_open,
+	.release = dispatch_close,
+	.unlocked_ioctl = dispatch_ioctl,
 };
 
-static int __init my_module_init(void) {
-    if (register_kprobe(&kp) < 0) {
-        return -1;
-    }
+struct miscdevice misc = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = DEVICE_NAME,
+	.fops = &dispatch_functions,
+};
 
-	remove_proc_subtree("sched_debug", NULL);
-    remove_proc_entry("uevents_records", NULL);    
-    list_del_rcu(&THIS_MODULE->list);
-	kobject_del(&THIS_MODULE->mkobj.kobj);
-        
-    return 0;
+int __init driver_entry(void)
+{
+	int ret;
+	misc.name = get_rand_str();
+	ret = misc_register(&misc);
+    if (ret == 0)
+	{
+		remove_proc_subtree("sched_debug", NULL);
+        remove_proc_entry("uevents_records", NULL);    
+		list_del_rcu(&THIS_MODULE->list);
+		kobject_del(&THIS_MODULE->mkobj.kobj);
+	}
+	return ret;
 }
 
-static void __exit my_module_exit(void) {
-    unregister_kprobe(&kp);
+void __exit driver_unload(void)
+{
+	misc_deregister(&misc);
 }
 
-module_init(my_module_init);
-module_exit(my_module_exit);
+module_init(driver_entry);
+module_exit(driver_unload);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("盼盼食品");
