@@ -8,9 +8,8 @@
 #include <linux/version.h>
 #include <linux/vmalloc.h>
 #include <linux/types.h>
-#if(LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,83))
+#include <linux/sched/task.h>
 #include <linux/sched/mm.h>
-#endif
 #include <asm/cpu.h>
 #include <asm/io.h>
 #include <asm/page.h>
