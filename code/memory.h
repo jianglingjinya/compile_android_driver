@@ -19,14 +19,18 @@
 static inline bool is_valid_user_addr(struct mm_struct *mm, unsigned long addr, size_t size)
 {
     struct vm_area_struct *vma;
-    if (addr + size < addr) 
+    bool valid; 
+
+    if (addr + size < addr)
         return false;
     if (addr >= TASK_SIZE || addr + size > TASK_SIZE)
         return false;
+
     mmap_read_lock(mm);
     vma = find_vma(mm, addr);
-    bool valid = vma && addr >= vma->vm_start && addr + size <= vma->vm_end;
+    valid = vma && addr >= vma->vm_start && addr + size <= vma->vm_end;
     mmap_read_unlock(mm);
+
     return valid;
 }
 
