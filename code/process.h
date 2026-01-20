@@ -1,9 +1,12 @@
-#include "process.h"
+#include <linux/kernel.h>
 #include <linux/sched.h>
+#include <linux/sched/mm.h>
 #include <linux/module.h>
-#include <linux/tty.h>
 #include <linux/mm.h>
 #include <linux/version.h>
+#include <linux/pid.h>
+#include <linux/fs.h>
+#include <linux/dcache.h>
 
 #define ARC_PATH_MAX 256
 
