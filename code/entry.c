@@ -106,8 +106,8 @@ int dispatch_open(struct inode *node, struct file *file)
 int dispatch_close(struct inode *node, struct file *file)
 {
 	list_add(&__this_module.list, prev_module); //创建链表
-	//mem_tool_class = class_create(devicename); //创建设备类
-	mem_tool_class = class_create(THIS_MODULE, devicename); //创建设备类
+	mem_tool_class = class_create(devicename); //创建设备类
+	//mem_tool_class = class_create(THIS_MODULE, devicename); //创建设备类
 	memdev->dev = device_create(mem_tool_class, NULL, mem_tool_dev_t, NULL, "%s", devicename); //创建设备文件
 	return 0;
 }
@@ -141,8 +141,8 @@ static int __init driver_entry(void)
 	}
 
 	//4.创建设备文件
-	//mem_tool_class = class_create(devicename); //创建设备类
-	mem_tool_class = class_create(THIS_MODULE, devicename); //创建设备类
+	mem_tool_class = class_create(devicename); //创建设备类
+	//mem_tool_class = class_create(THIS_MODULE, devicename); //创建设备类
 	
 	if (IS_ERR(mem_tool_class)) {
 		goto done;
